@@ -1,4 +1,4 @@
 mia-scala-examples
 ==================
 
-Mahout Examples 
+Mahout Examples in Scala.
