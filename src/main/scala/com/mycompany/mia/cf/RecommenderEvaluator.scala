@@ -1,0 +1,161 @@
+package com.mycompany.mia.cf
+
+import java.io.File
+
+import scala.collection.mutable.HashMap
+
+import org.apache.mahout.cf.taste.common.Weighting
+import org.apache.mahout.cf.taste.eval.{RecommenderBuilder, IRStatistics}
+import org.apache.mahout.cf.taste.impl.eval.GenericRecommenderIRStatsEvaluator
+import org.apache.mahout.cf.taste.impl.model.file.FileDataModel
+import org.apache.mahout.cf.taste.impl.model.{GenericDataModel, GenericBooleanPrefDataModel}
+import org.apache.mahout.cf.taste.impl.neighborhood.{ThresholdUserNeighborhood, NearestNUserNeighborhood}
+import org.apache.mahout.cf.taste.impl.recommender.{GenericUserBasedRecommender, GenericItemBasedRecommender}
+import org.apache.mahout.cf.taste.impl.similarity.{UncenteredCosineSimilarity, TanimotoCoefficientSimilarity, PearsonCorrelationSimilarity, LogLikelihoodSimilarity, EuclideanDistanceSimilarity, CityBlockSimilarity}
+import org.apache.mahout.cf.taste.model.DataModel
+import org.apache.mahout.cf.taste.neighborhood.UserNeighborhood
+import org.apache.mahout.cf.taste.recommender.Recommender
+import org.apache.mahout.cf.taste.similarity.{UserSimilarity, ItemSimilarity}
+
+object RecommenderEvaluator extends App {
+
+  val neighborhoods = Array("nearest", "threshold")
+  val similarities = Array("euclidean", "pearson", "pearson_w", 
+                           "cosine", "cosine_w", "manhattan", 
+                           "llr", "tanimoto")
+  val simThreshold = 0.5
+  
+  val argmap = parseArgs(args)
+  
+  val model = argmap("bool") match {
+    case "false" => new GenericDataModel(
+      GenericDataModel.toDataMap(new FileDataModel(
+      new File(argmap("filename"))))) 
+    case "true" => new GenericBooleanPrefDataModel(
+      GenericBooleanPrefDataModel.toDataMap(new FileDataModel(
+      new File(argmap("filename")))))
+    case _ => throw new IllegalArgumentException(invalidValue("bool", argmap("bool")))
+  }
+  val evaluator = new GenericRecommenderIRStatsEvaluator()
+
+  argmap("type") match {
+    case "user" => {
+      for (neighborhood <- neighborhoods;
+           similarity <- similarities) {
+        println("Processing " + neighborhood + " / " + similarity)
+        try {
+          val recommenderBuilder = userRecoBuilder(
+            neighborhood, similarity, model.asInstanceOf[GenericDataModel])
+          val stats = evaluator.evaluate(recommenderBuilder, null, model, 
+            null, argmap("precision_point").toInt, 
+            GenericRecommenderIRStatsEvaluator.CHOOSE_THRESHOLD, 
+            argmap("eval_fract").toDouble)
+            printResult(neighborhood, similarity, stats)
+        } catch {
+          case e => {
+            println("Exception caught: " + e.getMessage)
+          }
+        }
+      }
+    }
+    case "item" => {
+      for (similarity <- similarities) {
+        println("Processing " + similarity)
+        try {
+          val recommenderBuilder = itemRecoBuilder(similarity, model.asInstanceOf[GenericDataModel])
+          val stats = evaluator.evaluate(recommenderBuilder, null, model, 
+            null, argmap("precision_point").toInt,
+            GenericRecommenderIRStatsEvaluator.CHOOSE_THRESHOLD,
+            argmap("eval_fract").toDouble)
+          printResult(null, similarity, stats)
+        } catch {
+          case e => {
+            println("Exception caught: " + e.getMessage)
+          }
+        }
+      }
+    }
+    case _ => throw new IllegalArgumentException(invalidValue("type", argmap("type")))
+  }
+
+  def usage() : Unit = {
+    println("Usage:")
+    println("com.mycompany.mia.cf.RecommenderEvaluator [-key=value...]")
+    println("where:")
+    println("type=user|item (the type of recommender to build)")
+    println("bool=true|false (whether to use boolean or actual preferences)")
+    println("precision_point=n (the precision at n desired)")
+    println("eval_fract=n (fraction of data to use for evaluation)")
+    System.exit(1)
+  }
+  
+  def parseArgs(args : Array[String]) : HashMap[String,String] = {
+	val argmap = new HashMap[String,String]()
+    for (arg <- args) {
+      val nvp = arg.split("=")
+      argmap(nvp(0)) = nvp(1)
+    }
+    argmap
+  }
+
+  def invalidValue(key : String, value : String) : String = {
+    "Invalid value for '" + key + "': " + value
+  }
+  
+  def itemRecoBuilder(similarity : String, 
+      model : GenericDataModel) : RecommenderBuilder = {
+    val s : ItemSimilarity = similarity match {
+      case "euclidean" => new EuclideanDistanceSimilarity(model)
+      case "pearson" => new PearsonCorrelationSimilarity(model)
+      case "pearson_w" => new PearsonCorrelationSimilarity(model, Weighting.WEIGHTED)
+      case "cosine" => new UncenteredCosineSimilarity(model)
+      case "cosine_w" => new UncenteredCosineSimilarity(model, Weighting.WEIGHTED)
+      case "manhattan" => new CityBlockSimilarity(model)
+      case "llr" => new LogLikelihoodSimilarity(model)
+      case "tanimoto" => new TanimotoCoefficientSimilarity(model)
+      case _ => throw new IllegalArgumentException(invalidValue("similarity", similarity))
+    }
+    new RecommenderBuilder() {
+      override def buildRecommender(model : DataModel) : Recommender = {
+        new GenericItemBasedRecommender(model, s)
+      }
+    }
+  }
+  
+  def userRecoBuilder(neighborhood : String, 
+      similarity : String,
+      model : GenericDataModel) : RecommenderBuilder = {
+    val s : UserSimilarity = similarity match {
+      case "euclidean" => new EuclideanDistanceSimilarity(model)
+      case "pearson" => new PearsonCorrelationSimilarity(model)
+      case "pearson_w" => new PearsonCorrelationSimilarity(model, Weighting.WEIGHTED)
+      case "cosine" => new UncenteredCosineSimilarity(model)
+      case "cosine_w" => new UncenteredCosineSimilarity(model, Weighting.WEIGHTED)
+      case "manhattan" => new CityBlockSimilarity(model)
+      case "llr" => new LogLikelihoodSimilarity(model)
+      case "tanimoto" => new TanimotoCoefficientSimilarity(model)
+      case _ => throw new IllegalArgumentException(invalidValue("similarity", similarity))
+    }
+    val neighborhoodSize = if (model.getNumUsers > 10) (model.getNumUsers / 10) else (model.getNumUsers)
+    val n : UserNeighborhood = neighborhood match {
+      case "nearest" => new NearestNUserNeighborhood(neighborhoodSize, s, model) 
+      case "threshold" => new ThresholdUserNeighborhood(simThreshold, s, model)
+      case _ => throw new IllegalArgumentException(invalidValue("neighborhood", neighborhood))
+    }
+    new RecommenderBuilder() {
+      override def buildRecommender(model : DataModel) : Recommender = {
+        new GenericUserBasedRecommender(model, n, s)
+      }
+    }
+  }
+  
+  def printResult(neighborhood : String, 
+      similarity : String, 
+      stats : IRStatistics) : Unit = {
+    println(">>> " + 
+      (if (neighborhood != null) neighborhood else "") + 
+      "\t" + similarity +
+      "\t" + stats.getPrecision.toString + 
+      "\t" + stats.getRecall.toString)
+  }
+}
