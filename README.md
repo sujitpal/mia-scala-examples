@@ -1,4 +1,6 @@
 mia-scala-examples
 ==================
 
-Mahout Examples in Scala.
+com/mycompany/mia: Mahout Examples in Scala.
+
+com/mycompany/weka: Some Weka Examples.
