@@ -1,13 +1,10 @@
 package com.mycompany.mia.cluster
 
 import java.io.{StringReader, Reader}
-
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem}
 import org.apache.hadoop.io.{SequenceFile, IntWritable}
 import org.apache.lucene.analysis.standard.{StandardTokenizer, StandardFilter, StandardAnalyzer}
-import org.apache.lucene.analysis.tokenattributes.TermAttribute
-import org.apache.lucene.analysis.{WhitespaceTokenizer, TokenStream, StopFilter, LowerCaseFilter, Analyzer}
 import org.apache.lucene.util.Version
 import org.apache.mahout.clustering.canopy.CanopyDriver
 import org.apache.mahout.clustering.classify.WeightedVectorWritable
@@ -18,6 +15,15 @@ import org.apache.mahout.common.distance.{TanimotoDistanceMeasure, EuclideanDist
 import org.apache.mahout.common.HadoopUtil
 import org.apache.mahout.vectorizer.tfidf.TFIDFConverter
 import org.apache.mahout.vectorizer.{DocumentProcessor, DictionaryVectorizer}
+import org.apache.lucene.analysis.Analyzer
+import org.apache.lucene.analysis.TokenStream
+import org.apache.lucene.analysis.core.LowerCaseFilter
+import org.apache.lucene.analysis.core.StopFilter
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute
+import org.apache.lucene.analysis.core.WhitespaceTokenizer
+import org.apache.lucene.analysis.Analyzer.TokenStreamComponents
+import org.apache.lucene.analysis.TokenFilter
+import org.apache.lucene.analysis.Tokenizer
 
 object ReutersClusterer extends App {
   
@@ -106,25 +112,26 @@ class ReutersAnalyzer extends Analyzer {
   
   val ALPHA_PATTERN = """[a-z]+""".r
   
-  override def tokenStream(fieldName : String, reader : Reader) : 
-	  TokenStream = {
+  override def createComponents(fieldName: String, reader: Reader):
+      TokenStreamComponents = {
     // tokenize input string by standard tokenizer
-    var result : TokenStream = 
-      new StandardTokenizer(Version.LUCENE_CURRENT, reader)
-    result = new StandardFilter(result)
+    val source : Tokenizer = 
+      new StandardTokenizer(Version.LUCENE_43, reader)
+    var filter: TokenFilter = 
+      new StandardFilter(Version.LUCENE_43, source)
     // lowercase all words
-    result = new LowerCaseFilter(result)
+    filter = new LowerCaseFilter(Version.LUCENE_43, filter)
     // remove stop words
-    result = new StopFilter(true, result, 
+    filter = new StopFilter(Version.LUCENE_43, filter, 
       StandardAnalyzer.STOP_WORDS_SET)
-    val termAttr = result.addAttribute(classOf[TermAttribute]).
-      asInstanceOf[TermAttribute]
+    val termAttr = filter.addAttribute(classOf[CharTermAttribute]).
+      asInstanceOf[CharTermAttribute]
     val buf = new StringBuilder()
-    while (result.incrementToken()) {
+    while (filter.incrementToken()) {
       // remove words < 3 chars long
-      if (termAttr.termLength() >= 3) {
+      if (termAttr.length() >= 3) {
         val word = new String(
-          termAttr.termBuffer(), 0, termAttr.termLength())
+          termAttr.buffer(), 0, termAttr.length())
         // remove words with non-alpha chars in them
         if (ALPHA_PATTERN.pattern.matcher(word).matches) {
           buf.append(word).append(" ")
@@ -132,6 +139,6 @@ class ReutersAnalyzer extends Analyzer {
       }
     }
     // return the remaining tokens
-    new WhitespaceTokenizer(new StringReader(buf.toString))
+    new TokenStreamComponents(source, filter)
   }
 }

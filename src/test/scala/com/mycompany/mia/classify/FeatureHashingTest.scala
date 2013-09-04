@@ -7,7 +7,7 @@ import org.junit.Test
 import org.apache.lucene.analysis.standard.StandardAnalyzer
 import org.apache.lucene.util.Version
 import java.io.StringReader
-import org.apache.lucene.analysis.tokenattributes.TermAttribute
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute
 
 class FeatureHashingTest {
 
@@ -39,14 +39,13 @@ class FeatureHashingTest {
   
   @Test def testEncodeTextLikeFeatures() = {
     val encoder = new StaticWordValueEncoder("text")
-    val analyzer = new StandardAnalyzer(Version.LUCENE_31)
+    val analyzer = new StandardAnalyzer(Version.LUCENE_43)
     val reader = new StringReader("text to magically vectorize")
     val tokstream = analyzer.tokenStream("body", reader)
-    val termAttr = tokstream.addAttribute(classOf[TermAttribute])
+    val termAttr = tokstream.addAttribute(classOf[CharTermAttribute])
     val vector = new RandomAccessSparseVector(100)
     while (tokstream.incrementToken()) {
-      val word = new String(
-        termAttr.termBuffer(), 0, termAttr.termLength())
+      val word = new String(termAttr.buffer(), 0, termAttr.length())
       encoder.addToVector(word, 1, vector)
     }
     println(vector)
