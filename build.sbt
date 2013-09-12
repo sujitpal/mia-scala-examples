@@ -1,3 +1,15 @@
+import AssemblyKeys._
+
+seq(assemblySettings: _*)
+
+test in assembly := {}
+
+mergeStrategy in assembly := {
+  case "META-INF/MANIFEST.MF" => MergeStrategy.discard
+  case "hadoop-core-1.2.1.jar" => MergeStrategy.discard
+  case _ => MergeStrategy.first
+}
+
 name := "mia-scala-examples"
 
 EclipseKeys.withSource := true
