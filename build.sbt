@@ -27,5 +27,9 @@ libraryDependencies ++= Seq(
   "org.apache.lucene" % "lucene-analyzers-common" % "4.2.1",
   "org.apache.lucene" % "lucene-queries" % "4.2.1",
   "org.apache.lucene" % "lucene-queryparser" % "4.2.1",
+  "org.apache.tika" % "tika-core" % "1.4",
+  "org.apache.tika" % "tika-parsers" % "1.4",
+  "org.apache.opennlp" % "opennlp-maxent" % "3.0.3",
+  "org.apache.opennlp" % "opennlp-tools" % "1.5.3",
   "com.novocode" % "junit-interface" % "0.10" % "test"
 )
