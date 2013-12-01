@@ -10,6 +10,10 @@ mergeStrategy in assembly := {
   case _ => MergeStrategy.first
 }
 
+fork in Test := true
+
+javaOptions += "-Xmx2G"
+
 name := "mia-scala-examples"
 
 EclipseKeys.withSource := true

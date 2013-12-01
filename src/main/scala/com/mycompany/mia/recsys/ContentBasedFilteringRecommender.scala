@@ -151,7 +151,8 @@ class TfIdfBuilder(val model: DataModel,
       })
     // we got our TF (raw term freqs), now find IDFs
     val numdocs = tagMovieMatrix.numCols()
-    val numdocsPerTag = tagMovieMatrix.aggregateColumns(new SumFunc())
+    val numdocsPerTag = tagMovieMatrix.aggregateColumns(
+      new AddIfNonZeroFunc)
     val idf = numdocsPerTag.assign(new IdfFunc, numdocs)    
     // now calculate TF-IDF
     (0 until tagMovieMatrix.numRows()).foreach(r => {
@@ -166,11 +167,29 @@ class TfIdfBuilder(val model: DataModel,
     })
     tagMovieMatrix
   }
-  
+
+  /**
+   * Sums the elements in a vector.
+   */
   class SumFunc extends VectorFunction {
-    override def apply(v: Vector): Double = v.zSum()
+    override def apply(vec: Vector): Double = vec.zSum()  
   }
   
+  /**
+   * Calculate number of documents in which a tag appears.
+   * Document needs to be computed once regardless of the
+   * number of tags.
+   */
+  class AddIfNonZeroFunc extends VectorFunction {
+    override def apply(vec: Vector): Double = 
+      vec.all().filter(e => e.get() > 0.0D).size.toDouble
+  }
+  
+  /**
+   * Given the number of documents per tag and the number of
+   * documents (movies), calculates the IDF as 
+   * log(numDocPerTag)/numDocs.
+   */
   class IdfFunc extends DoubleDoubleFunction {
     override def apply(elem: Double, ext: Double): Double = {
       scala.math.log(ext / elem)
