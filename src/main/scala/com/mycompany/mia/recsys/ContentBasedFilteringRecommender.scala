@@ -130,49 +130,49 @@ class TfIdfBuilder(val model: DataModel,
    */
   def build(): SparseMatrix = { 
     // assign each tag an id
-    val tagId = new AtomicInteger(0)
+    val tagIds = new AtomicInteger(0)
     Source.fromFile(tagfile)
       .getLines()
       .foreach(line => {
         val tag = line.split(",")(1)
         if (! tagIndex.contains(tag)) 
-          tagIndex(tag) = tagId.getAndIncrement() 
+          tagIndex(tag) = tagIds.getAndIncrement()
       })
     // populate the SparseMatrix in the second scan through tagfile
-    val tagMovieMatrix = new SparseMatrix(itemIndex.size, tagIndex.size)
+    val movieTagMatrix = new SparseMatrix(itemIndex.size, tagIndex.size)
     Source.fromFile(tagfile)
       .getLines()
       .foreach(line => {
         val columns = line.split(",")
         val row = itemIndex(columns(0).toLong)
         val col = tagIndex(columns(1))
-        tagMovieMatrix.setQuick(row, col, 
-          tagMovieMatrix.getQuick(row, col) + 1.0D)
+        movieTagMatrix.setQuick(row, col, 
+          movieTagMatrix.getQuick(row, col) + 1.0D)
       })
     // we got our TF (raw term freqs), now find IDFs
-    val numdocs = tagMovieMatrix.numCols()
-    val numdocsPerTag = tagMovieMatrix.aggregateColumns(
-      new AddIfNonZeroFunc)
-    val idf = numdocsPerTag.assign(new IdfFunc, numdocs)    
+    val numdocs = movieTagMatrix.numRows()
+    val docfreq = movieTagMatrix.aggregateColumns(
+      new AddOneIfNonZeroFunc)
+    val idf = docfreq.assign(new IdfFunc, numdocs)    
     // now calculate TF-IDF
-    (0 until tagMovieMatrix.numRows()).foreach(r => {
-      val row = tagMovieMatrix.viewRow(r).times(idf)
-      tagMovieMatrix.assignRow(r, row)
-    })
-    // then unit-normalize over each item
-    val rowsums = tagMovieMatrix.aggregateRows(new SumFunc())
-    (0 until tagMovieMatrix.numRows()).foreach(r => {
-      val row = tagMovieMatrix.viewRow(r).times(1.0D / rowsums.get(r))
-      tagMovieMatrix.assignRow(r, row)
-    })
-    tagMovieMatrix
+    for (r <- 0 until movieTagMatrix.numRows()) {
+      val row = movieTagMatrix.viewRow(r).times(idf)
+      movieTagMatrix.assignRow(r, row)
+    }
+    // then unit-normalize over each item (use Eucledian norm)
+    val enorm = movieTagMatrix.aggregateRows(new SumOfSquaresFunc())
+    for (r <- 0 until movieTagMatrix.numRows()) {
+      val row = movieTagMatrix.viewRow(r).times(1.0D / enorm.get(r))
+      movieTagMatrix.assignRow(r, row)
+    }
+    movieTagMatrix
   }
 
   /**
    * Sums the elements in a vector.
    */
-  class SumFunc extends VectorFunction {
-    override def apply(vec: Vector): Double = vec.zSum()  
+  class SumOfSquaresFunc extends VectorFunction {
+    override def apply(vec: Vector): Double = vec.norm(2)  
   }
   
   /**
@@ -180,7 +180,7 @@ class TfIdfBuilder(val model: DataModel,
    * Document needs to be computed once regardless of the
    * number of tags.
    */
-  class AddIfNonZeroFunc extends VectorFunction {
+  class AddOneIfNonZeroFunc extends VectorFunction {
     override def apply(vec: Vector): Double = 
       vec.all().filter(e => e.get() > 0.0D).size.toDouble
   }
@@ -192,7 +192,8 @@ class TfIdfBuilder(val model: DataModel,
    */
   class IdfFunc extends DoubleDoubleFunction {
     override def apply(elem: Double, ext: Double): Double = {
-      scala.math.log(ext / elem)
+//        scala.math.log(elem / ext)
+        Math.log(elem / ext)
     }
   }
 }

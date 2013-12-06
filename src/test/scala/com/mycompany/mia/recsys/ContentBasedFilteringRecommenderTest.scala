@@ -34,49 +34,40 @@ class ContentBasedFilteringRecommenderTest {
     2919L  -> List((180L, 0.1454), (11L, 0.1238), (1891L, 0.1172),
                   (424L, 0.1074), (2501L, 0.0973)))      
   
-  @Test def checkValues(): Unit = {
+  @Test def testUnweightedRecommendations(): Unit = {
     val cbf = new ContentBasedFilteringRecommender(
       new File("data/recsys/ratings.csv"),
-      new File("data/recsys/movie-tags.csv")
-    )
-    val userProfile = cbf.makeUnweightedUserProfile(11L)
-    Console.println(userProfile)
+      new File("data/recsys/movie-tags.csv"))
+    testUsers.foreach(user => {
+      val actualResults = cbf.similarMovies(user, 5, 
+        cbf.makeUnweightedUserProfile)
+      Console.println("results for user: " + user)
+      Console.println("actuals=" + actualResults)
+      Console.println("expected=" + expectedUnweightedResults(user))
+      assertEquals(actualResults, expectedUnweightedResults(user))
+    })
   }
-  
-//  @Test def testUnweightedRecommendations(): Unit = {
-//    val cbf = new ContentBasedFilteringRecommender(
-//      new File("data/recsys/ratings.csv"),
-//      new File("data/recsys/movie-tags.csv"))
-//    testUsers.foreach(user => {
-//      val actualResults = cbf.similarMovies(user, 5, 
-//        cbf.makeUnweightedUserProfile)
-//      Console.println("results for user: " + user)
-//      Console.println("actuals=" + actualResults)
-//      Console.println("expected=" + expectedUnweightedResults(user))
-////      assertEquals(actualResults, expectedUnweightedResults(user))
-//    })
-//  }
-//
-//  @Test def testWeightedRecommendations(): Unit = {
-//    val cbf = new ContentBasedFilteringRecommender(
-//      new File("data/recsys/ratings.csv"),
-//      new File("data/recsys/movie-tags.csv"))
-//    testUsers.foreach(user => {
-//      val actualResults = cbf.similarMovies(user, 5, 
-//        cbf.makeWeightedUserProfile)
-//      Console.println("results for user: " + user)
-//      Console.println("actuals=" + actualResults)
-//      Console.println("expected=" + expectedWeightedResults(user))
-////      assertEquals(actualResults, expectedWeightedResults(user))
-//    })
-//  }
-//
-//  def assertEquals(xs: List[(Long,Double)], 
-//      ys: List[(Long,Double)]): Unit = {
-//    Assert.assertEquals(xs.size, ys.size)
-//    xs.zip(ys).foreach(xy => {
-//      Assert.assertEquals(xy._1._1, xy._2._1)
-//      Assert.assertEquals(xy._1._2, xy._2._2, 0.01D)
-//    })
-//  }
+
+  @Test def testWeightedRecommendations(): Unit = {
+    val cbf = new ContentBasedFilteringRecommender(
+      new File("data/recsys/ratings.csv"),
+      new File("data/recsys/movie-tags.csv"))
+    testUsers.foreach(user => {
+      val actualResults = cbf.similarMovies(user, 5, 
+        cbf.makeWeightedUserProfile)
+      Console.println("results for user: " + user)
+      Console.println("actuals=" + actualResults)
+      Console.println("expected=" + expectedWeightedResults(user))
+      assertEquals(actualResults, expectedWeightedResults(user))
+    })
+  }
+
+  def assertEquals(xs: List[(Long,Double)], 
+      ys: List[(Long,Double)]): Unit = {
+    Assert.assertEquals(xs.size, ys.size)
+    xs.zip(ys).foreach(xy => {
+      Assert.assertEquals(xy._1._1, xy._2._1)
+      Assert.assertEquals(xy._1._2, xy._2._2, 0.01D)
+    })
+  }
 }
