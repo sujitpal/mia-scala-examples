@@ -26,10 +26,11 @@ class ItemItemCollaborativeFilteringRecommender(modelfile: File) {
 
   /**
    * Compute a predicted rating using the following formula:
-   *                   sum(sim(I,J)*(r(J))
-   * P(u,I) = mu(u) + ---------------------
-   *                     sum(|sim(I,J)|
-   * summing over all items J in item neighborhood.
+   *                     sum(sim(i,j) * (r(j))
+   *   p(u,i) = mu(u) + -------------------------
+   *                        sum(|sim(i,j)|)
+   *                        
+   * summing over all items j in item neighborhood.
    * @param user the userID.
    * @param item the itemID.
    * @return the predicted rating for (userID,itemID).
@@ -105,30 +106,42 @@ class ItemItemCollaborativeFilteringRecommender(modelfile: File) {
     // then normalize so we can calculate cosine
     // similarity by doing matrix multiplication
     val userMeans = new RandomAccessSparseVector(model.getNumUsers())
-    val normRatingMatrix = new SparseMatrix(
-      model.getNumUsers(), model.getNumItems())
     for (user <- model.getUserIDs()) {
       val userRow = ratingMatrix.viewRow(userIndex(user))
-      val len = userRow.all().filter(e => e != null).size.toDouble
+      val len = userRow.all()
+        .filter(e => e.get() > 0.0D).size.toDouble
       val sum = userRow.zSum()
       val userMean = sum / len
       userMeans.setQuick(userIndex(user), userMean)
-      normRatingMatrix.assignRow(userIndex(user), 
-        userRow.assign(new PlusIfPositive, userMean))
+      ratingMatrix.assignRow(userIndex(user), 
+        userRow.assign(new AddIfPositive, -userMean))
     }
+    // Item similarity is computed using cosine similarity.
+    // Rather than do this across all item-item pairs, we
+    // do the equivalent, ie, normalize the matrix using 
+    // norm(2) and then multiplying the normalized matrix 
+    // with its transpose.
+    val normRatingMatrix = ratingMatrix.clone()
     for (item <- model.getItemIDs()) {
       val itemCol = normRatingMatrix.viewColumn(itemIndex(item))
       val norm = itemCol.norm(2.0D)
       normRatingMatrix.assignColumn(itemIndex(item), 
         itemCol.times(1.0D / norm))
     }
-    val itemsims = normRatingMatrix.transpose().times(normRatingMatrix)
-    (userMeans, normRatingMatrix, itemsims)    
+    val itemsims = normRatingMatrix.transpose()
+      .times(normRatingMatrix)
+    (userMeans, ratingMatrix, itemsims)    
   }
-  
-  class PlusIfPositive extends DoubleDoubleFunction {
+
+  /**
+   * For mean centering, we only subtract the user mean for
+   * ratings that the user has made. Since unknown ratings
+   * are represented by 0, we use this function to skip the
+   * non-existent ratings.
+   */
+  class AddIfPositive extends DoubleDoubleFunction {
     override def apply(elem: Double, other: Double): Double = {
-      if (elem > 0.0D) elem - other
+      if (elem > 0.0D) elem + other
       else 0.0D
     }
   }
