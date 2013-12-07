@@ -6,9 +6,7 @@ import scala.collection.JavaConversions.asScalaIterator
 import scala.collection.JavaConversions.iterableAsScalaIterable
 
 import org.apache.mahout.cf.taste.impl.model.file.FileDataModel
-import org.apache.mahout.math.Matrix
 import org.apache.mahout.math.RandomAccessSparseVector
-import org.apache.mahout.math.SparseMatrix
 import org.apache.mahout.math.Vector
 
 /**
@@ -18,14 +16,9 @@ import org.apache.mahout.math.Vector
 class UserUserCollaborativeFilteringRecommender(modelfile: File) {
 
   val model = new FileDataModel(modelfile)
-  val userIndex = model.getUserIDs().zipWithIndex.toMap
-  val reverseUserIndex = userIndex.map {case (k, v) => (v, k)}
   val itemIndex = model.getItemIDs().zipWithIndex.toMap
-  val uuModel = buildUUModel()
-  val userMeans = uuModel._1
-  val mcRatings = uuModel._2
-  val userSims = uuModel._3
-
+  val userIndex = model.getUserIDs().zipWithIndex.toMap
+  
   /**
    * Compute a predicted rating using the following
    * formula:
@@ -38,97 +31,96 @@ class UserUserCollaborativeFilteringRecommender(modelfile: File) {
    * @return a predicted rating for (userID,itemID).
    */
   def predictRating(user: Long, item: Long): Double = {
-    // find the 30 most similar users to this user
-    // from this set
-    val neighbors = getUserNeighborhood(user, item, 30)
-    // calculate the rating and return
-    val nd = neighbors.map(usersim => {
-      val user = usersim._1
+    val muU = meanRating(user)
+    val vectorU = centerUserVector(user, muU) 
+    val neighbors = getUserNeighborhood(user, item, vectorU, 30)
+    val ndpairs = neighbors.map(usersim => {
+      val otheruser = usersim._1
       val simUV = usersim._2
-      val normRating = mcRatings.getQuick(
-        userIndex(user), itemIndex(item))
-      (normRating * simUV, math.abs(simUV))
+      val muV = meanRating(otheruser)
+      val rVI = model.getPreferenceValue(otheruser, item)
+      (simUV * (rVI - muV), scala.math.abs(simUV))
+    })
+    val numer = ndpairs.map(x => x._1).foldLeft(0.0D)(_ + _)
+    val denom = ndpairs.map(x => x._2).foldLeft(0.0D)(_ + _)
+    muU + (numer / denom)
+  }
+  
+  /**
+   * Returns a neighborhood of similar users to a user
+   * for a given item. Similarity metric used is Cosine
+   * Similarity.
+   * @param user the userID.
+   * @param item the itemID.
+   * @param vectorU the mean centered user vector for
+   *        specified user.
+   * @param nnbrs the number of neighbors to return.
+   * @return a List of (userID,similarity) tuples for
+   *        users in the neighborhood.
+   */
+  def getUserNeighborhood(user: Long, item: Long,
+      vectorU: Vector,
+      nnbrs: Int): List[(Long,Double)] = {
+    model.getPreferencesForItem(item)
+      // for the item, find all users that have rated the item
+      // except the user itself.
+      .map(pref => pref.getUserID().toLong)
+      .filter(_ != user)
+      // then mean center that rating and compute 
+      // the cosine similarity between this user 
+      // and our user
+      .map(otheruser => {
+        val muV = meanRating(otheruser)
+        val vectorV = centerUserVector(otheruser, muV)
+        (otheruser, cosineSimilarity(vectorU, vectorV))
       })
-    val num = nd.map(x => x._1).foldLeft(0.0D)(_ + _)
-    val den = nd.map(x => x._2).foldLeft(0.0D)(_ + _)
-    userMeans.get(userIndex(user)) + (num / den)
-  }
-  
-  /**
-   * Scans the similarity matrix row for the provided user,
-   * sorts the elements by descending order of similarity
-   * and reports the top numNeighbors values with the
-   * associated userIDs.
-   * @param user the user for which similar users are to
-   *             be found.
-   * @param item the item for which similar users are to
-   *             be found.
-   * @param numNeighbors the number of neighbors to find.
-   */
-  def getUserNeighborhood(user: Long,  item: Long, 
-      numNeighbors: Int): List[(Long,Double)] = {
-    // for the item, find users (except this user)
-    // who have rated the item
-	val otherUsers = model.getUserIDs()
-	  .map(user => (user, model.getItemIDsFromUser(user)))
-	  .filter(useritems => useritems._2.contains(item))
-	  .map(useritems => useritems._1.toLong)
-	  .toSet
-    userSims.viewRow(userIndex(user))
-      .all()
-      .zipWithIndex
-      .map(simindex => (reverseUserIndex(simindex._2).toLong, 
-        simindex._2.toDouble))
-      .filter(usersim => otherUsers.contains(usersim._1))
       .toList
-      .sortWith((a, b) => a._2 > b._2)
-      .slice(0, numNeighbors)
+      // sort by similarity and return the topN
+      .sortWith((a,b) => a._2 > b._2)
+      .slice(0, nnbrs)
   }
   
   /**
-   * Builds a UU Model and returns a vector containing user's
-   * mean ratings and a matrix of user-user similarities. The
-   * method is called by the class during initialization.
-   * @return tuple of user mean ratings and user-user
-   *         similarities.
+   * Calculate the mean rating for a user.
+   * @param user the userID.
+   * @return the mean user rating for that user.
    */
-  def buildUUModel(): (Vector, Matrix, Matrix) = {
-    // build rating matrix
-    val ratingMatrix = new SparseMatrix(
-      model.getNumUsers(), model.getNumItems())
-    for (user <- model.getUserIDs()) {
-      for (item <- model.getItemIDsFromUser(user)) {
-        ratingMatrix.setQuick(userIndex(user), itemIndex(item), 
-          model.getPreferenceValue(user, item).toDouble)
-      }
-    }
-    // mean center ratings by user, ie find mean for each row
-    // and subtract it from that row. We then normalize each
-    // row by its 2-norm (so we can compute cosine similarity 
-    // calculation as normRatingMatrix * normRatingMatrix.T)
-    val userMeans = new RandomAccessSparseVector(userIndex.size)
-    val mcRatingMatrix = new SparseMatrix(
-      model.getNumUsers(), model.getNumItems())
-    val userNorms = new RandomAccessSparseVector(userIndex.size)
-    for (r <- 0 until userIndex.size) {
-      val row = ratingMatrix.viewRow(r)
-      val len = row.all().filter(_ != null).size.toDouble
-      val sum = row.zSum()
-      val userMean = sum / len
-      val norm = row.norm(2.0D)
-      userMeans.setQuick(r, userMean)
-      mcRatingMatrix.assignRow(r, row.plus(-1.0D * userMean))
-    }
-    // calculate cosine similarity for all users
-    val normRatingMatrix = new SparseMatrix(
-      model.getNumUsers(), model.getNumItems())
-    for (r <- 0 until userIndex.size) {
-      val row = mcRatingMatrix.viewRow(r)
-      val norm = row.norm(2.0D)
-      normRatingMatrix.assignRow(r, row.times(1.0D / norm))
-    }
-    val similarities = normRatingMatrix.times(
-      normRatingMatrix.transpose())
-    (userMeans, mcRatingMatrix, similarities)
+  def meanRating(user: Long): Double = {
+    val ratings = model.getPreferencesFromUser(user)
+      .map(pref => pref.getValue())
+      .toList
+    ratings.foldLeft(0.0D)(_ + _) / ratings.size
+  }
+  
+  /**
+   * Build a vector of item ratings for the user and
+   * center them around the mean specified.
+   * @param user the userID.
+   * @param meanRating the mean item rating for user.
+   * @return a vector containing mean centered ratings.
+   */
+  def centerUserVector(user: Long, meanRating: Double): Vector = {
+    val uservec = new RandomAccessSparseVector(itemIndex.size)
+    model.getPreferencesFromUser(user)
+      .foreach(pref => uservec.setQuick(
+        itemIndex(pref.getItemID()), 
+        pref.getValue() - meanRating))
+    uservec
+  }
+
+  /**
+   * Compute cosine similarity between user vectors.
+   * The isNAN() check is for cases where the user
+   * has rated everything the same, so the mean
+   * centered vector is all zeros, and the norm(2)
+   * is also zero. The correct behavior (based on
+   * np.linalg.norm()) is to return 0.0 in that case.
+   * @param u vector for user u
+   * @param v vector for user v
+   * @return the cosine similarity between vectors.
+   */
+  def cosineSimilarity(u: Vector, v: Vector): Double = {
+    val cosim = u.dot(v) / (u.norm(2) * v.norm(2))
+    if (cosim.isNaN()) 0.0D else cosim
   }
 }

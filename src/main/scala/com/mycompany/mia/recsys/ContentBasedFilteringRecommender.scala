@@ -192,8 +192,7 @@ class TfIdfBuilder(val model: DataModel,
    */
   class IdfFunc extends DoubleDoubleFunction {
     override def apply(elem: Double, ext: Double): Double = {
-//        scala.math.log(elem / ext)
-        Math.log(elem / ext)
+        scala.math.log(elem / ext)
     }
   }
 }
