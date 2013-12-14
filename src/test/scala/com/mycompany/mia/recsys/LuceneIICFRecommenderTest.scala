@@ -47,7 +47,7 @@ class LuceneIICFRecommenderTest {
     Console.println("prediction(2048,393) = " + predictedRating)
     Assert.assertTrue(predictedRating > 4.0D)
     val predictRatingForRatedItem = liicf.predict(2048L, 77L)
-    Console.println("prediction(2048,77) = " + predictedRating)
+    Console.println("prediction(2048,77) = " + predictRatingForRatedItem)
     Assert.assertEquals(predictedRating, 4.5D, 0.1D)
   }
 }
