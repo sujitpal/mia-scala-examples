@@ -24,6 +24,7 @@ import org.apache.lucene.queries.mlt.MoreLikeThis
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.TermQuery
 import org.apache.lucene.store.SimpleFSDirectory
+import org.apache.lucene.util.BytesRef
 import org.apache.lucene.util.Version
 import org.apache.mahout.cf.taste.impl.model.file.FileDataModel
 
@@ -73,6 +74,8 @@ class LuceneIICFRecommender(
     else {
       val nds = ratedItems.map(j => {
         val simIJ = similarity(item, j, 20)
+//        val simIJ = similarity(item, j, this.cosine(_, _))
+//        val simIJ = similarity(item, j, this.tanimoto(_, _))
         val rUJ = model.getPreferenceValue(user, j)
         (simIJ * rUJ, simIJ)
       })
@@ -121,12 +124,9 @@ class LuceneIICFRecommender(
    *         the item neighborhood.
    */
   def similarItems(item: Long, nnbrs: Int): List[(Long,Double)] = {
-    // find docID for source document
-	val hits = indexSearcher.search(
-	  new TermQuery(new Term("itemID", item.toString)), 1)
-    if (hits.totalHits == 0) List()
+    val docID = getFromIndex(item)
+    if (docID < 0) List()
     else {
-      val docID = hits.scoreDocs(0).doc
       val mlt = new MoreLikeThis(indexReader)
       mlt.setMinTermFreq(0)
       mlt.setMinDocFreq(0)
@@ -143,6 +143,94 @@ class LuceneIICFRecommender(
       .toList
       .filter(docsim => docsim._1 != item)
     }
+  }
+
+  /**
+   * Calculate similarity between two items specified
+   * by item ID using the specified similarity function.
+   * @param itemI the item ID for the first item.
+   * @param itemJ the item ID for the second item.
+   * @param simfunc the similarity function to use.
+   * @return the similarity between itemI and itemJ.
+   */
+  def similarity(itemI: Long, itemJ: Long, 
+      simfunc: (Map[String,Long], Map[String,Long]) => Double): 
+      Double = {
+    simfunc.apply(termVector(itemI), termVector(itemJ))
+  }
+  
+  /**
+   * Extract the term vector for an item as a sparse
+   * map of tags to raw tag frequencies.
+   * @param item the item ID
+   * @return the term vector for the item.
+   */
+  def termVector(item: Long): Map[String,Long] = {
+    val docID = getFromIndex(item)
+    val terms = indexReader.getTermVector(docID, "tags")
+    val termsEnum = terms.iterator(null)
+    var termVector = Map[String,Long]()
+    var term: BytesRef = null
+    do {
+      term = termsEnum.next()
+      if (term != null) {
+        val termtext = term.utf8ToString()
+        val freq = termsEnum.totalTermFreq()
+        termVector += ((termtext, freq))
+      }
+    } while (term != null)
+    termVector
+  }
+
+  /**
+   * Implementation of cosine similarity using Maps.
+   * @param vecA Map representation of sparse vector
+   *             for itemA
+   * @param vecB Map representation of sparse vector
+   *             for itemB.
+   * @return the cosine similarity between vecA and
+   *             vecB (normalized by Euclidean norm).
+   */
+  def cosine(vecA: Map[String,Long], 
+      vecB: Map[String,Long]): Double = {
+    val dotProduct = vecA.keySet.intersect(vecB.keySet)
+      .map(key => vecA(key) * vecB(key))
+      .foldLeft(0.0D)(_ + _)
+    val normA = scala.math.sqrt(vecA.values
+      .map(v => scala.math.pow(v, 2.0D))
+      .foldLeft(0.0D)(_ + _))
+    val normB = scala.math.sqrt(vecB.values
+      .map(v => scala.math.pow(v, 2.0D))
+      .foldLeft(0.0D)(_ + _))
+    dotProduct / (normA * normB)
+  }
+  
+  /**
+   * Implementation of Tanimoto coefficient using Maps.
+   * @param vecA Map representation of sparse vector
+   *             for itemA
+   * @param vecB Map representation of sparse vector
+   *             for itemB.
+   * @return the Tanimoto coefficient between vecA and
+   *             vecB.
+   */
+  def tanimoto(vecA: Map[String,Long], 
+      vecB: Map[String,Long]): Double = {
+    val num = vecA.keySet.intersect(vecB.keySet).size.toDouble
+    val den = vecA.keySet.union(vecB.keySet).size.toDouble
+    num / den
+  }
+
+  /**
+   * Convenience method to get a docID from the Lucene
+   * index by item ID.
+   * @param the itemID for the item.
+   * @return the corresponding docID from Lucene.
+   */
+  def getFromIndex(item: Long): Int = {
+    val hits = indexSearcher.search(
+      new TermQuery(new Term("itemID", item.toString)), 1)
+    if (hits.totalHits == 0) -1 else hits.scoreDocs(0).doc 
   }
 
   /**
@@ -171,7 +259,7 @@ class LuceneIICFRecommender(
              tagBuf += tag.replaceAll(" ", "_").toLowerCase()
            } else {
              val doc = new Document()
-             doc.add(new Field("itemID", itemID, 
+             doc.add(new Field("itemID", prevItemID.toString, 
                Store.YES, Index.NOT_ANALYZED))
              doc.add(new Field("tags", tagBuf.mkString(" "), 
                Store.YES, Index.ANALYZED, TermVector.YES))
@@ -181,6 +269,12 @@ class LuceneIICFRecommender(
            }
            prevItemID = itemID.toInt
         })
+      val doc = new Document()
+      doc.add(new Field("itemID", prevItemID.toString, 
+        Store.YES, Index.NOT_ANALYZED))
+      doc.add(new Field("tags", tagBuf.mkString(" "), 
+        Store.YES, Index.ANALYZED, TermVector.YES))
+      indexWriter.addDocument(doc)
       indexWriter.commit()
       indexWriter.close()
     }

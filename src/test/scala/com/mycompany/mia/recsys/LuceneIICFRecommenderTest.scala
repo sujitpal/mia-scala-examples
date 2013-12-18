@@ -20,7 +20,7 @@ class LuceneIICFRecommenderTest {
       val Array(movieID, title) = line.split(",")
       (movieID.toLong, title)
     }).toMap
-  
+    
   @Test def testRecommendItemsGivenUser(): Unit = {
     val scores = liicf.recommend(15L, 20)
     Assert.assertEquals(scores.size, 20)
@@ -34,7 +34,7 @@ class LuceneIICFRecommenderTest {
   @Test def testRecommendItemsGivenItem(): Unit = {
     val recommendedItems = liicf.similarItems(77L, 10)
     Assert.assertEquals(recommendedItems.size, 10)
-    Console.println("recommendations for [%5d %s]"
+    Console.println("recommendations for movie(%d): %s"
       .format(77L, movieNames(77L)))
     recommendedItems.foreach(docsim => {
       Console.println("%7.4f %5d %s"
@@ -45,9 +45,9 @@ class LuceneIICFRecommenderTest {
   @Test def testPredictRatingForItem(): Unit = {
     val predictedRating = liicf.predict(2048L, 393L)
     Console.println("prediction(2048,393) = " + predictedRating)
-    Assert.assertTrue(predictedRating > 4.0D)
+    Assert.assertEquals(predictedRating, 3.69D, 0.01D)
     val predictRatingForRatedItem = liicf.predict(2048L, 77L)
     Console.println("prediction(2048,77) = " + predictRatingForRatedItem)
-    Assert.assertEquals(predictedRating, 4.5D, 0.1D)
+    Assert.assertEquals(predictRatingForRatedItem, 4.5D, 0.1D)
   }
 }
