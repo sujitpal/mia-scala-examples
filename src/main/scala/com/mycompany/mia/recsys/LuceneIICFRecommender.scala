@@ -24,7 +24,6 @@ import org.apache.lucene.queries.mlt.MoreLikeThis
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.TermQuery
 import org.apache.lucene.store.SimpleFSDirectory
-import org.apache.lucene.util.BytesRef
 import org.apache.lucene.util.Version
 import org.apache.mahout.cf.taste.impl.model.file.FileDataModel
 
@@ -169,19 +168,13 @@ class LuceneIICFRecommender(
     val docID = getFromIndex(item)
     val terms = indexReader.getTermVector(docID, "tags")
     val termsEnum = terms.iterator(null)
-    var termVector = Map[String,Long]()
-    var term: BytesRef = null
-    do {
-      term = termsEnum.next()
-      if (term != null) {
-        val termtext = term.utf8ToString()
-        val freq = termsEnum.totalTermFreq()
-        termVector += ((termtext, freq))
-      }
-    } while (term != null)
-    termVector
+    Stream.continually(termsEnum.next())
+      .takeWhile(term => term != null)
+      .map(term => (term.utf8ToString(), termsEnum.totalTermFreq()))
+      .toMap
   }
 
+  
   /**
    * Implementation of cosine similarity using Maps.
    * @param vecA Map representation of sparse vector
