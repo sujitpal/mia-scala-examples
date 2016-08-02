@@ -1,7 +1,7 @@
 mia-scala-examples
 ==================
 
-com/mycompany/mia: Mahout Examples in Scala.
+com/mycompany/mia/{cf, classify, cluster, preprocess}: Mahout Examples in Scala.
 
 com/mycompany/mia/fpg: Mahout FP-Growth pre and post processor.
 
